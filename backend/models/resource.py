@@ -25,6 +25,7 @@ class Resource(Base):
     team = Column(String, nullable=False, index=True)
     environment = Column(String, nullable=False, index=True)  # production, staging, development
     waste_score = Column(Float, default=0.0, index=True)  # 0-100, higher = more waste
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
@@ -77,6 +78,7 @@ class Recommendation(Base):
     potential_savings = Column(Float, nullable=False)  # Monthly savings in USD
     suggested_action = Column(Text, nullable=False)
     confidence = Column(Float, default=0.8)  # 0-1, confidence in recommendation
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # Relationships

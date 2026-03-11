@@ -14,6 +14,7 @@ from backend.schemas.cost import BudgetStatusResponse
 
 def recompute_cost_aggregates(
     db: Session,
+    user_id: int,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None
 ) -> int:
@@ -33,7 +34,7 @@ def recompute_cost_aggregates(
         date_range = db.query(
             func.min(CloudCost.ts_date).label('min_date'),
             func.max(CloudCost.ts_date).label('max_date')
-        ).first()
+        ).filter(CloudCost.user_id == user_id).first()
         
         if not date_range.min_date:
             return 0  # No data to aggregate
@@ -45,7 +46,8 @@ def recompute_cost_aggregates(
     costs = db.query(CloudCost).filter(
         and_(
             CloudCost.ts_date >= start_date,
-            CloudCost.ts_date <= end_date
+            CloudCost.ts_date <= end_date,
+            CloudCost.user_id == user_id
         )
     ).all()
     
@@ -83,7 +85,8 @@ def recompute_cost_aggregates(
                 CostAggregate.team == (None if row['team'] == '*' else row['team']),
                 CostAggregate.service == (None if row['service'] == '*' else row['service']),
                 CostAggregate.region == (None if row['region'] == '*' else row['region']),
-                CostAggregate.env == (None if row['env'] == '*' else row['env'])
+                CostAggregate.env == (None if row['env'] == '*' else row['env']),
+                CostAggregate.user_id == user_id
             )
         ).first()
         
@@ -99,7 +102,8 @@ def recompute_cost_aggregates(
                 service=None if row['service'] == '*' else row['service'],
                 region=None if row['region'] == '*' else row['region'],
                 env=None if row['env'] == '*' else row['env'],
-                total_cost=row['cost_amount']
+                total_cost=row['cost_amount'],
+                user_id=user_id
             )
             db.add(aggregate)
         
@@ -109,7 +113,7 @@ def recompute_cost_aggregates(
     return rows_upserted
 
 
-def get_budget_statuses(db: Session, month: Optional[date] = None) -> List[BudgetStatusResponse]:
+def get_budget_statuses(db: Session, user_id: int, month: Optional[date] = None) -> List[BudgetStatusResponse]:
     """
     Calculate budget status for all budgets in the given month.
     
@@ -137,8 +141,8 @@ def get_budget_statuses(db: Session, month: Optional[date] = None) -> List[Budge
     
     days_passed = current_day.day
     
-    # Get all budgets
-    budgets = db.query(Budget).all()
+    # Get all budgets for user
+    budgets = db.query(Budget).filter(Budget.user_id == user_id).all()
     
     results = []
     for budget in budgets:
@@ -147,7 +151,8 @@ def get_budget_statuses(db: Session, month: Optional[date] = None) -> List[Budge
             and_(
                 CostAggregate.ts_date >= month_start,
                 CostAggregate.ts_date <= current_day,
-                CostAggregate.team == budget.team
+                CostAggregate.team == budget.team,
+                CostAggregate.user_id == user_id
             )
         )
         

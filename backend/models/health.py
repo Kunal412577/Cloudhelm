@@ -2,6 +2,7 @@
 Health monitoring models for service health tracking and anomaly detection.
 """
 from sqlalchemy import Column, Integer, String, DateTime, Float, Text, Index, UniqueConstraint
+import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 import uuid
@@ -25,6 +26,7 @@ class ServiceMetric(Base):
     memory_usage = Column(Float, nullable=False, default=0.0)
     restart_count = Column(Integer, nullable=False, default=0)
     pod_count = Column(Integer, nullable=False, default=0)
+    user_id = Column(Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     __table_args__ = (
@@ -49,6 +51,7 @@ class MetricsAnomaly(Base):
     anomaly_score = Column(Float, nullable=False)
     affected_metrics = Column(Text, nullable=False)  # JSON array of metric names
     description = Column(Text, nullable=False)
+    user_id = Column(Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     __table_args__ = (
@@ -70,6 +73,7 @@ class Service(Base):
     service_type = Column(String(100), nullable=False)  # 'microservice', 'database', 'cache', etc.
     status = Column(String(50), nullable=False, default='active')  # 'active', 'inactive'
     last_seen = Column(DateTime(timezone=True), nullable=True)
+    user_id = Column(Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     
@@ -94,6 +98,7 @@ class ContainerMetric(Base):
     disk_read_bytes = Column(Integer, nullable=False, default=0)
     disk_write_bytes = Column(Integer, nullable=False, default=0)
     pids = Column(Integer, nullable=False, default=0)
+    user_id = Column(Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     __table_args__ = (
@@ -119,6 +124,7 @@ class PodMetric(Base):
     total_containers = Column(Integer, nullable=False, default=0)
     restart_count = Column(Integer, nullable=False, default=0)
     node_name = Column(String(255), nullable=True)
+    user_id = Column(Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     __table_args__ = (

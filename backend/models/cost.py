@@ -1,7 +1,8 @@
 """
 Cost-related models for cloud cost tracking and analysis.
 """
-from sqlalchemy import Column, Integer, String, Date, Numeric, Float, Index
+from sqlalchemy import Column, Integer, String, Date, Numeric, Float, Index, ForeignKey
+import sqlalchemy as sa
 from backend.core.db import Base
 
 
@@ -21,6 +22,7 @@ class CloudCost(Base):
     usage_type = Column(String, nullable=True)
     cost_amount = Column(Numeric(18, 6), nullable=False)
     currency = Column(String, nullable=False, default="USD")
+    user_id = Column(Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     
     __table_args__ = (
         Index('idx_cloud_cost_date_cloud_service', 'ts_date', 'cloud', 'service'),
@@ -43,6 +45,7 @@ class CostAggregate(Base):
     region = Column(String, nullable=True)
     env = Column(String, nullable=True)
     total_cost = Column(Numeric(18, 6), nullable=False)
+    user_id = Column(Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     
     __table_args__ = (
         Index(
@@ -69,6 +72,7 @@ class Budget(Base):
     service = Column(String, nullable=True)  # Null means team-wide budget
     monthly_budget_amount = Column(Numeric(18, 6), nullable=False)
     currency = Column(String, nullable=False, default="USD")
+    user_id = Column(Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     
     def __repr__(self):
         return f"<Budget(team={self.team}, service={self.service}, budget={self.monthly_budget_amount})>"
@@ -91,6 +95,7 @@ class CostAnomaly(Base):
     anomaly_score = Column(Float, nullable=False)
     direction = Column(String, nullable=False)  # "spike" or "drop"
     severity = Column(String, nullable=False)  # "low", "medium", "high"
+    user_id = Column(Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     
     __table_args__ = (
         Index('idx_cost_anomaly_date_severity', 'ts_date', 'severity'),
@@ -147,6 +152,7 @@ class Deployment(Base):
     deployed_by = Column(String(100), nullable=True)
     version = Column(String(100), nullable=True)
     commit_sha = Column(String(100), nullable=True)
+    user_id = Column(Integer, sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     
     __table_args__ = (
         Index('idx_deployment_deployed_at_status', 'deployed_at', 'status'),

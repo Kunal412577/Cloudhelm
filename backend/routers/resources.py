@@ -102,7 +102,10 @@ def ingest_metrics(
     """
     try:
         # Check if resource exists, create if not
-        resource = db.query(Resource).filter(Resource.id == metric.resource_id).first()
+        resource = db.query(Resource).filter(
+            Resource.id == metric.resource_id,
+            Resource.user_id == current_user.id
+        ).first()
         
         if not resource:
             # Auto-create resource
@@ -111,7 +114,8 @@ def ingest_metrics(
                 name=metric.resource_name or metric.resource_id,
                 resource_type=metric.resource_type,
                 team=metric.team,
-                environment=metric.environment
+                environment=metric.environment,
+                user_id=current_user.id
             )
             db.add(resource)
             db.commit()
@@ -131,9 +135,9 @@ def ingest_metrics(
         db.commit()
         
         # Trigger analysis
-        analyze_resource_utilization(db, metric.resource_id)
-        generate_rightsizing_recommendation(db, metric.resource_id)
-        generate_schedule_recommendation(db, metric.resource_id)
+        analyze_resource_utilization(db, metric.resource_id, current_user.id)
+        generate_rightsizing_recommendation(db, metric.resource_id, current_user.id)
+        generate_schedule_recommendation(db, metric.resource_id, current_user.id)
         
         return {
             "status": "ingested",
@@ -165,6 +169,7 @@ def get_dashboard_stats(
             filters.append(Resource.team == team)
         if environment:
             filters.append(Resource.environment == environment)
+        filters.append(Resource.user_id == current_user.id)
         
         # OPTIMIZATION: Single mega-query for all stats
         stats = db.query(
@@ -235,7 +240,7 @@ def list_resources(
         ).outerjoin(
             metrics_subq,
             Resource.id == metrics_subq.c.resource_id
-        )
+        ).filter(Resource.user_id == current_user.id)
         
         # Apply filters
         if team:
@@ -289,7 +294,10 @@ def list_recommendations(
         query = db.query(
             Recommendation,
             Resource.name.label('resource_name')
-        ).join(Resource, Recommendation.resource_id == Resource.id)
+        ).join(Resource, Recommendation.resource_id == Resource.id).filter(
+            Recommendation.user_id == current_user.id,
+            Resource.user_id == current_user.id
+        )
         
         # Apply filters
         if recommendation_type:
@@ -334,38 +342,40 @@ def seed_data(
     Creates realistic resources, metrics, and recommendations across multiple teams and environments.
     """
     try:
-        # Clear existing data
-        db.query(ResourceMetric).delete()
-        db.query(Recommendation).delete()
-        db.query(Resource).delete()
+        # Clear existing data for user
+        db.query(ResourceMetric).filter(ResourceMetric.resource_id.in_(
+            db.query(Resource.id).filter(Resource.user_id == current_user.id)
+        )).delete(synchronize_session=False)
+        db.query(Recommendation).filter(Recommendation.user_id == current_user.id).delete()
+        db.query(Resource).filter(Resource.user_id == current_user.id).delete()
         db.commit()
         
         # Create comprehensive sample resources (15 resources across teams/environments)
         resources = [
             # Backend Team
-            Resource(id="vm-backend-1", name="api-server-prod-01", resource_type="EC2 t3.xlarge", team="Backend", environment="production", waste_score=8.5),
-            Resource(id="vm-backend-2", name="api-server-prod-02", resource_type="EC2 t3.xlarge", team="Backend", environment="production", waste_score=12.3),
-            Resource(id="vm-backend-3", name="worker-queue-prod", resource_type="EC2 c5.2xlarge", team="Backend", environment="production", waste_score=25.7),
-            Resource(id="vm-backend-4", name="api-staging-01", resource_type="EC2 t3.large", team="Backend", environment="staging", waste_score=45.2),
+            Resource(id="vm-backend-1", name="api-server-prod-01", resource_type="EC2 t3.xlarge", team="Backend", environment="production", waste_score=8.5, user_id=current_user.id),
+            Resource(id="vm-backend-2", name="api-server-prod-02", resource_type="EC2 t3.xlarge", team="Backend", environment="production", waste_score=12.3, user_id=current_user.id),
+            Resource(id="vm-backend-3", name="worker-queue-prod", resource_type="EC2 c5.2xlarge", team="Backend", environment="production", waste_score=25.7, user_id=current_user.id),
+            Resource(id="vm-backend-4", name="api-staging-01", resource_type="EC2 t3.large", team="Backend", environment="staging", waste_score=45.2, user_id=current_user.id),
             
             # Frontend Team
-            Resource(id="vm-frontend-1", name="web-server-prod-01", resource_type="EC2 t3.medium", team="Frontend", environment="production", waste_score=15.8),
-            Resource(id="vm-frontend-2", name="web-server-prod-02", resource_type="EC2 t3.medium", team="Frontend", environment="production", waste_score=18.2),
-            Resource(id="vm-frontend-3", name="web-dev-01", resource_type="EC2 t3.large", team="Frontend", environment="development", waste_score=78.5),
+            Resource(id="vm-frontend-1", name="web-server-prod-01", resource_type="EC2 t3.medium", team="Frontend", environment="production", waste_score=15.8, user_id=current_user.id),
+            Resource(id="vm-frontend-2", name="web-server-prod-02", resource_type="EC2 t3.medium", team="Frontend", environment="production", waste_score=18.2, user_id=current_user.id),
+            Resource(id="vm-frontend-3", name="web-dev-01", resource_type="EC2 t3.large", team="Frontend", environment="development", waste_score=78.5, user_id=current_user.id),
             
             # Platform Team
-            Resource(id="vm-platform-1", name="cache-redis-prod", resource_type="ElastiCache r6g.large", team="Platform", environment="production", waste_score=22.1),
-            Resource(id="vm-platform-2", name="cache-staging", resource_type="ElastiCache r6g.medium", team="Platform", environment="staging", waste_score=52.3),
-            Resource(id="vm-platform-3", name="monitoring-server", resource_type="EC2 t3.medium", team="Platform", environment="production", waste_score=35.6),
+            Resource(id="vm-platform-1", name="cache-redis-prod", resource_type="ElastiCache r6g.large", team="Platform", environment="production", waste_score=22.1, user_id=current_user.id),
+            Resource(id="vm-platform-2", name="cache-staging", resource_type="ElastiCache r6g.medium", team="Platform", environment="staging", waste_score=52.3, user_id=current_user.id),
+            Resource(id="vm-platform-3", name="monitoring-server", resource_type="EC2 t3.medium", team="Platform", environment="production", waste_score=35.6, user_id=current_user.id),
             
             # Data Team
-            Resource(id="vm-data-1", name="analytics-worker-01", resource_type="EC2 r5.xlarge", team="Data", environment="production", waste_score=32.4),
-            Resource(id="vm-data-2", name="etl-pipeline-prod", resource_type="EC2 c5.large", team="Data", environment="production", waste_score=28.9),
-            Resource(id="vm-data-3", name="ml-training-dev", resource_type="EC2 p3.2xlarge", team="Data", environment="development", waste_score=85.7),
+            Resource(id="vm-data-1", name="analytics-worker-01", resource_type="EC2 r5.xlarge", team="Data", environment="production", waste_score=32.4, user_id=current_user.id),
+            Resource(id="vm-data-2", name="etl-pipeline-prod", resource_type="EC2 c5.large", team="Data", environment="production", waste_score=28.9, user_id=current_user.id),
+            Resource(id="vm-data-3", name="ml-training-dev", resource_type="EC2 p3.2xlarge", team="Data", environment="development", waste_score=85.7, user_id=current_user.id),
             
             # DevOps Team
-            Resource(id="vm-devops-1", name="ci-build-agent-01", resource_type="EC2 t3.large", team="DevOps", environment="production", waste_score=42.8),
-            Resource(id="vm-devops-2", name="temp-test-env", resource_type="EC2 t3.xlarge", team="DevOps", environment="development", waste_score=92.3),
+            Resource(id="vm-devops-1", name="ci-build-agent-01", resource_type="EC2 t3.large", team="DevOps", environment="production", waste_score=42.8, user_id=current_user.id),
+            Resource(id="vm-devops-2", name="temp-test-env", resource_type="EC2 t3.xlarge", team="DevOps", environment="development", waste_score=92.3, user_id=current_user.id),
         ]
         db.add_all(resources)
         db.commit()
@@ -421,7 +431,8 @@ def seed_data(
                 description="Staging API server consistently uses <30% CPU and <35% memory. Workload can run on smaller instance.",
                 potential_savings=145.50,
                 suggested_action="Downgrade from t3.large to t3.medium (save $145.50/month)",
-                confidence=0.88
+                confidence=0.88,
+                user_id=current_user.id
             ),
             Recommendation(
                 resource_id="vm-platform-2",
@@ -429,7 +440,8 @@ def seed_data(
                 description="Cache server in staging shows low memory utilization (<40%) and minimal cache hits.",
                 potential_savings=220.00,
                 suggested_action="Downgrade from r6g.medium to r6g.small (save $220/month)",
-                confidence=0.82
+                confidence=0.82,
+                user_id=current_user.id
             ),
             Recommendation(
                 resource_id="vm-data-1",
@@ -437,7 +449,8 @@ def seed_data(
                 description="Analytics worker has 32% waste score. Memory usage peaks at 55%, CPU at 45%.",
                 potential_savings=185.75,
                 suggested_action="Downgrade from r5.xlarge to r5.large (save $185.75/month)",
-                confidence=0.75
+                confidence=0.75,
+                user_id=current_user.id
             ),
             Recommendation(
                 resource_id="vm-devops-1",
@@ -445,7 +458,8 @@ def seed_data(
                 description="CI build agent idle 60% of the time. Consider spot instances or smaller base instance.",
                 potential_savings=95.30,
                 suggested_action="Switch to t3.medium + spot instances (save $95.30/month)",
-                confidence=0.80
+                confidence=0.80,
+                user_id=current_user.id
             ),
             Recommendation(
                 resource_id="vm-platform-3",
@@ -453,7 +467,8 @@ def seed_data(
                 description="Monitoring server over-provisioned. Current usage: 35% CPU, 40% memory.",
                 potential_savings=72.50,
                 suggested_action="Downgrade from t3.medium to t3.small (save $72.50/month)",
-                confidence=0.85
+                confidence=0.85,
+                user_id=current_user.id
             ),
             
             # Schedule recommendations
@@ -463,7 +478,8 @@ def seed_data(
                 description="Development web server runs 24/7 but only used during business hours (9 AM - 6 PM).",
                 potential_savings=285.00,
                 suggested_action="Auto-shutdown: Daily 6 PM - 9 AM + weekends (save $285/month)",
-                confidence=0.92
+                confidence=0.92,
+                user_id=current_user.id
             ),
             Recommendation(
                 resource_id="vm-data-3",
@@ -471,7 +487,8 @@ def seed_data(
                 description="ML training instance in dev environment idle 85% of the time. Very expensive GPU instance.",
                 potential_savings=1850.00,
                 suggested_action="Terminate when idle >30 min, use on-demand only (save $1,850/month)",
-                confidence=0.95
+                confidence=0.95,
+                user_id=current_user.id
             ),
             Recommendation(
                 resource_id="vm-devops-2",
@@ -479,7 +496,8 @@ def seed_data(
                 description="Temporary test environment left running continuously. Should be ephemeral.",
                 potential_savings=420.00,
                 suggested_action="Auto-terminate after 2 hours of inactivity (save $420/month)",
-                confidence=0.98
+                confidence=0.98,
+                user_id=current_user.id
             ),
             Recommendation(
                 resource_id="vm-backend-4",
@@ -487,7 +505,8 @@ def seed_data(
                 description="Staging API server can run on reduced schedule outside business hours.",
                 potential_savings=125.00,
                 suggested_action="Scale down to 1 instance after 8 PM (save $125/month)",
-                confidence=0.78
+                confidence=0.78,
+                user_id=current_user.id
             ),
             Recommendation(
                 resource_id="vm-platform-2",
@@ -495,7 +514,8 @@ def seed_data(
                 description="Staging cache server not needed overnight or weekends.",
                 potential_savings=165.00,
                 suggested_action="Auto-shutdown: Daily 10 PM - 7 AM + weekends (save $165/month)",
-                confidence=0.85
+                confidence=0.85,
+                user_id=current_user.id
             ),
         ]
         db.add_all(recommendations)

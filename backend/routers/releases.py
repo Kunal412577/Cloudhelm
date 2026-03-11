@@ -32,7 +32,7 @@ def list_repositories(
 ):
     """Get all repositories for the authenticated user"""
     try:
-        repos = release_service.list_repositories(db)
+        repos = release_service.list_repositories(db, current_user.id)
         return repos
     except Exception as e:
         logger.error(f"Error listing repositories: {e}")
@@ -82,7 +82,7 @@ async def get_user_github_repos(
             }
             
             # Save to database (or update if exists)
-            db_repo = release_service.create_repository(db, repo_data)
+            db_repo = release_service.create_repository(db, repo_data, current_user.id)
             
             # Return database version (with proper UUID id)
             repos_list.append({
@@ -116,7 +116,7 @@ def get_repository(
 ):
     """Get repository by ID"""
     repo = release_service.get_repository(db, repo_id)
-    if not repo:
+    if not repo or repo.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Repository not found")
     return repo
 
@@ -143,7 +143,8 @@ def sync_repository(
             db,
             sync_request.owner,
             sync_request.repo,
-            token
+            token,
+            current_user.id
         )
         
         return {
@@ -172,7 +173,7 @@ def get_repository_releases(
     try:
         # Verify repository exists
         repo = release_service.get_repository(db, repo_id)
-        if not repo:
+        if not repo or repo.user_id != current_user.id:
             raise HTTPException(status_code=404, detail="Repository not found")
         
         # Get releases
@@ -197,7 +198,7 @@ def sync_repository_releases(
     try:
         # Get repository
         repo = release_service.get_repository(db, repo_id)
-        if not repo:
+        if not repo or repo.user_id != current_user.id:
             raise HTTPException(status_code=404, detail="Repository not found")
         
         # Use the GitHub token from the logged-in user
@@ -292,12 +293,25 @@ def list_releases(
     Optionally filter by repository ID and risk level
     """
     try:
+        # If repo_id is provided, verify ownership
+        if repo_id:
+            repo = release_service.get_repository(db, repo_id)
+            if not repo or repo.user_id != current_user.id:
+                raise HTTPException(status_code=404, detail="Repository not found")
+        
+        # TODO: In a real app, list_releases would also take user_id or list of repo_ids
         releases = release_service.list_releases(
             db, 
             repo_id=repo_id, 
             risk_level=risk_level,
             limit=limit
         )
+        
+        # If no repo_id was provided, we must filter results by user's repositories
+        if not repo_id:
+            user_repo_ids = [r.id for r in release_service.list_repositories(db, current_user.id)]
+            releases = [r for r in releases if r.repo_id in user_repo_ids]
+            
         return releases
     except Exception as e:
         logger.error(f"Error listing releases: {e}")
@@ -318,6 +332,12 @@ def get_release(
     release = release_service.get_release(db, release_id)
     if not release:
         raise HTTPException(status_code=404, detail="Release not found")
+        
+    # Verify ownership via repository
+    repo = release_service.get_repository(db, release.repo_id)
+    if not repo or repo.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Release not found")
+        
     return release
 
 
@@ -338,6 +358,15 @@ def get_release_impact(
     - Before/after metrics
     """
     try:
+        release = release_service.get_release(db, release_id)
+        if not release:
+            raise HTTPException(status_code=404, detail="Release not found")
+            
+        # Verify ownership via repository
+        repo = release_service.get_repository(db, release.repo_id)
+        if not repo or repo.user_id != current_user.id:
+            raise HTTPException(status_code=404, detail="Release not found")
+
         impact = release_service.get_release_impact(db, release_id)
         if not impact:
             raise HTTPException(status_code=404, detail="Release not found")

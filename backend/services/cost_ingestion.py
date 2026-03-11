@@ -12,7 +12,7 @@ from backend.models.cost import CloudCost
 from backend.schemas.cost import UploadResponse
 
 
-async def ingest_aws_cost_csv(file: UploadFile, db: Session) -> UploadResponse:
+async def ingest_aws_cost_csv(file: UploadFile, db: Session, user_id: int) -> UploadResponse:
     """
     Ingest AWS Cost and Usage Report (CUR) CSV file.
     Simplified version using standard library CSV parser.
@@ -110,7 +110,8 @@ async def ingest_aws_cost_csv(file: UploadFile, db: Session) -> UploadResponse:
                     team=str(team) if team else None,
                     usage_type=str(usage_type) if usage_type else None,
                     cost_amount=cost,
-                    currency=str(currency)
+                    currency=str(currency),
+                    user_id=user_id
                 )
                 records.append(record)
                 total_cost += cost
@@ -150,7 +151,7 @@ async def ingest_aws_cost_csv(file: UploadFile, db: Session) -> UploadResponse:
         raise HTTPException(status_code=400, detail=f"Error processing AWS CUR: {str(e)}")
 
 
-async def ingest_gcp_cost_file(file: UploadFile, db: Session) -> UploadResponse:
+async def ingest_gcp_cost_file(file: UploadFile, db: Session, user_id: int) -> UploadResponse:
     """
     Ingest GCP billing export file (CSV or JSON).
     
@@ -249,7 +250,8 @@ async def ingest_gcp_cost_file(file: UploadFile, db: Session) -> UploadResponse:
                 team=str(row['team']) if pd.notna(row['team']) else None,
                 usage_type=str(row['usage_type']) if pd.notna(row['usage_type']) else None,
                 cost_amount=float(row['cost']),
-                currency=str(row['currency'])
+                currency=str(row['currency']),
+                user_id=user_id
             )
             records.append(record)
         
@@ -279,7 +281,7 @@ async def ingest_gcp_cost_file(file: UploadFile, db: Session) -> UploadResponse:
         raise HTTPException(status_code=400, detail=f"Error processing GCP export: {str(e)}")
 
 
-async def ingest_azure_cost_csv(file: UploadFile, db: Session) -> UploadResponse:
+async def ingest_azure_cost_csv(file: UploadFile, db: Session, user_id: int) -> UploadResponse:
     """
     Ingest Azure cost export CSV file.
     
@@ -389,7 +391,8 @@ async def ingest_azure_cost_csv(file: UploadFile, db: Session) -> UploadResponse
                 team=str(row['team']) if pd.notna(row['team']) else None,
                 usage_type=str(row['usage_type']) if pd.notna(row['usage_type']) else None,
                 cost_amount=float(row['cost']),
-                currency=str(row['currency'])
+                currency=str(row['currency']),
+                user_id=user_id
             )
             records.append(record)
         

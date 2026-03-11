@@ -40,6 +40,7 @@ class Incident(Base):
     environment = Column(String, nullable=False, index=True)
     status = Column(SQLEnum(IncidentStatus), nullable=False, default=IncidentStatus.INVESTIGATING)
     severity = Column(SQLEnum(IncidentSeverity), nullable=False, default=IncidentSeverity.MEDIUM)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     
     # Timestamps
     start_time = Column(DateTime, nullable=False)

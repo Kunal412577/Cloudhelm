@@ -26,6 +26,7 @@ class Repository(Base):
     stars = Column(Integer, default=0)
     owner = Column(String, nullable=False)
     github_id = Column(Integer, unique=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     last_deployment = Column(DateTime(timezone=True), nullable=True)
     is_syncing = Column(Boolean, default=False)
     last_sync = Column(DateTime(timezone=True), nullable=True)
@@ -33,6 +34,7 @@ class Repository(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
+    user = relationship("User")
     releases = relationship("Release", back_populates="repository", cascade="all, delete-orphan")
     
     __table_args__ = (

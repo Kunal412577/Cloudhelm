@@ -10,6 +10,7 @@ import logging
 
 from backend.models.release import Repository, Release, ReleaseAnomaly, ReleaseIncident
 from backend.services.github_service import GitHubService
+from backend.services import security_service as sec_svc
 
 logger = logging.getLogger(__name__)
 
@@ -18,11 +19,12 @@ class ReleaseService:
     """Service for release operations and risk analysis"""
     
     @staticmethod
-    def create_repository(db: Session, repo_data: dict) -> Repository:
+    def create_repository(db: Session, repo_data: dict, user_id: int) -> Repository:
         """Create a new repository in database"""
         # Check if repository already exists
         existing = db.query(Repository).filter(
-            Repository.full_name == repo_data["full_name"]
+            Repository.full_name == repo_data["full_name"],
+            Repository.user_id == user_id
         ).first()
         
         if existing:
@@ -34,7 +36,7 @@ class ReleaseService:
             return existing
         
         # Create new repository
-        repo = Repository(**repo_data)
+        repo = Repository(**repo_data, user_id=user_id)
         db.add(repo)
         db.commit()
         db.refresh(repo)
@@ -51,9 +53,11 @@ class ReleaseService:
         return db.query(Repository).filter(Repository.full_name == full_name).first()
     
     @staticmethod
-    def list_repositories(db: Session) -> List[Repository]:
-        """List all repositories"""
-        return db.query(Repository).order_by(desc(Repository.last_deployment)).all()
+    def list_repositories(db: Session, user_id: int) -> List[Repository]:
+        """List all repositories for a user"""
+        return db.query(Repository).filter(
+            Repository.user_id == user_id
+        ).order_by(desc(Repository.last_deployment)).all()
     
     @staticmethod
     def update_repository_sync_status(
@@ -279,11 +283,66 @@ class ReleaseService:
             "amount": cost_anomalies[0].value - cost_anomalies[0].expected_value if cost_anomalies else 0,
             "percentage": cost_anomalies[0].deviation if cost_anomalies else 0,
         }
+
+        # ------------------------------------------------------------------
+        # Security scan (best-effort — never raises)
+        # ------------------------------------------------------------------
+        repo = db.query(Repository).filter(Repository.id == release.repo_id).first()
+        repo_full_name = repo.full_name if repo else None
+
+        security_impact: dict = {
+            "risk_score": 0.0,
+            "security_metrics": {
+                "critical": 0,
+                "high": 0,
+                "medium": 0,
+                "low": 0,
+                "unknown": 0,
+            },
+            "scan_status": "not_run",
+        }
+
+        if repo_full_name:
+            logger.info(
+                "Running Trivy scan for release %s on repo %s (ref=%s)",
+                release_id, repo_full_name, release.commit,
+            )
+            scan_result = sec_svc.scan_repository(
+                repo_full_name=repo_full_name,
+                token=None,          # TODO: pass user's GitHub token for private repos
+                ref=release.commit,
+            )
+
+            if scan_result is not None:
+                security_impact = {
+                    "risk_score": scan_result["risk_score"],
+                    "security_metrics": scan_result["security_metrics"],
+                    "scan_status": "success",
+                }
+                # Blend: 60% existing risk score + 40% security score
+                blended_score = (
+                    0.6 * release.risk_score
+                    + 0.4 * scan_result["risk_score"]
+                )
+                blended_risk_score = min(blended_score, 100.0)
+                blended_risk_level = ReleaseService.get_risk_level(blended_risk_score)
+                logger.info(
+                    "Blended risk score: %.1f → %s",
+                    blended_risk_score, blended_risk_level,
+                )
+            else:
+                security_impact["scan_status"] = "failed"
+                blended_risk_score = release.risk_score
+                blended_risk_level = release.risk_level
+        else:
+            security_impact["scan_status"] = "skipped"
+            blended_risk_score = release.risk_score
+            blended_risk_level = release.risk_level
         
         return {
             "release_id": release_id,
-            "risk_score": release.risk_score,
-            "risk_level": release.risk_level,
+            "risk_score": blended_risk_score,
+            "risk_level": blended_risk_level,
             "anomaly_count": anomaly_count,
             "incident_count": len(incidents),
             "cost_delta": cost_delta,
@@ -302,6 +361,7 @@ class ReleaseService:
             ],
             "incidents": incidents,
             "metrics_before_after": [],  # TODO: Implement metrics comparison
+            "security": security_impact,
         }
     
     @staticmethod
@@ -309,7 +369,8 @@ class ReleaseService:
         db: Session,
         owner: str,
         repo: str,
-        github_token: str
+        github_token: str,
+        user_id: int
     ) -> Repository:
         """
         Sync repository and releases from GitHub
@@ -320,7 +381,7 @@ class ReleaseService:
         repo_info = github_service.get_repository(owner, repo)
         
         # Create or update repository in database
-        db_repo = ReleaseService.create_repository(db, repo_info)
+        db_repo = ReleaseService.create_repository(db, repo_info, user_id)
         
         # Mark as syncing
         ReleaseService.update_repository_sync_status(db, str(db_repo.id), True)

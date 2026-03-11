@@ -82,6 +82,23 @@ class AnomalyResponse(AnomalyBase):
         from_attributes = True
 
 
+# Security Metrics Schemas
+class SecurityMetrics(BaseModel):
+    """Vulnerability counts from a Trivy scan."""
+    critical: int = 0
+    high: int = 0
+    medium: int = 0
+    low: int = 0
+    unknown: int = 0
+
+
+class SecurityImpact(BaseModel):
+    """Security scan result embedded in the release impact response."""
+    risk_score: float = 0.0
+    security_metrics: SecurityMetrics = SecurityMetrics()
+    scan_status: str = "not_run"   # not_run | success | failed | skipped
+
+
 # Impact Analysis Response
 class ReleaseImpactResponse(BaseModel):
     release_id: str
@@ -93,6 +110,7 @@ class ReleaseImpactResponse(BaseModel):
     anomalies: List[dict]
     incidents: List[dict]
     metrics_before_after: List[dict] = []
+    security: SecurityImpact = SecurityImpact()
 
 
 # Sync Request

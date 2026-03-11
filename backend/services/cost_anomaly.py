@@ -14,6 +14,7 @@ from backend.models.cost import CostAggregate, CostAnomaly
 
 def recompute_cost_anomalies(
     db: Session,
+    user_id: int,
     min_history_days: int = 14,
     history_window_days: int = 60
 ) -> int:
@@ -28,8 +29,8 @@ def recompute_cost_anomalies(
     Returns:
         Number of anomalies detected
     """
-    # Get latest date in aggregates
-    latest_date = db.query(func.max(CostAggregate.ts_date)).scalar()
+    # Get latest date in aggregates for this user
+    latest_date = db.query(func.max(CostAggregate.ts_date)).filter(CostAggregate.user_id == user_id).scalar()
     
     if not latest_date:
         return 0
@@ -43,7 +44,7 @@ def recompute_cost_anomalies(
         CostAggregate.team,
         CostAggregate.service,
         CostAggregate.env
-    ).distinct().all()
+    ).filter(CostAggregate.user_id == user_id).distinct().all()
     
     anomalies_detected = 0
     
@@ -53,7 +54,8 @@ def recompute_cost_anomalies(
             and_(
                 CostAggregate.ts_date >= start_date,
                 CostAggregate.ts_date <= latest_date,
-                CostAggregate.cloud == cloud
+                CostAggregate.cloud == cloud,
+                CostAggregate.user_id == user_id
             )
         )
         
@@ -163,7 +165,8 @@ def recompute_cost_anomalies(
                             CostAnomaly.cloud == cloud,
                             CostAnomaly.team == team,
                             CostAnomaly.service == service,
-                            CostAnomaly.env == env
+                            CostAnomaly.env == env,
+                            CostAnomaly.user_id == user_id
                         )
                     ).first()
                     
@@ -187,7 +190,8 @@ def recompute_cost_anomalies(
                             expected_cost=expected_cost,
                             anomaly_score=float(score),
                             direction=direction,
-                            severity=severity
+                            severity=severity,
+                            user_id=user_id
                         )
                         db.add(anomaly)
                     

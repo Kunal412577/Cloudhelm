@@ -57,7 +57,7 @@ def calculate_average_metrics(db: Session, resource_id: str, days: int = 7) -> O
     }
 
 
-def analyze_resource_utilization(db: Session, resource_id: str) -> float:
+def analyze_resource_utilization(db: Session, resource_id: str, user_id: int) -> float:
     """
     Analyze resource utilization and calculate waste score.
     
@@ -96,7 +96,10 @@ def analyze_resource_utilization(db: Session, resource_id: str) -> float:
         waste_score = 0.0
     
     # Update resource waste score
-    resource = db.query(Resource).filter(Resource.id == resource_id).first()
+    resource = db.query(Resource).filter(
+        Resource.id == resource_id,
+        Resource.user_id == user_id
+    ).first()
     if resource:
         resource.waste_score = waste_score
         db.commit()
@@ -108,6 +111,7 @@ def analyze_resource_utilization(db: Session, resource_id: str) -> float:
 def generate_rightsizing_recommendation(
     db: Session, 
     resource_id: str,
+    user_id: int,
     current_type: str = "t3.large",
     recommended_type: str = "t3.medium",
     monthly_savings: float = 150.0
@@ -128,7 +132,8 @@ def generate_rightsizing_recommendation(
     # Check if recommendation already exists to avoid duplicates
     existing = db.query(Recommendation).filter(
         Recommendation.resource_id == resource_id,
-        Recommendation.recommendation_type == 'rightsizing'
+        Recommendation.recommendation_type == 'rightsizing',
+        Recommendation.user_id == user_id
     ).first()
     
     if existing:
@@ -147,7 +152,10 @@ def generate_rightsizing_recommendation(
     
     # Only recommend rightsizing if utilization is low
     if avg_cpu < 20.0 or avg_memory < 20.0:
-        resource = db.query(Resource).filter(Resource.id == resource_id).first()
+        resource = db.query(Resource).filter(
+            Resource.id == resource_id,
+            Resource.user_id == user_id
+        ).first()
         
         if not resource:
             return None
@@ -159,7 +167,8 @@ def generate_rightsizing_recommendation(
             description=f'Resource is significantly underutilized (CPU: {avg_cpu:.1f}%, Memory: {avg_memory:.1f}%).',
             potential_savings=monthly_savings,
             suggested_action=f'Downgrade from {current_type} to {recommended_type}',
-            confidence=0.85
+            confidence=0.85,
+            user_id=user_id
         )
         
         db.add(rec)
@@ -175,6 +184,7 @@ def generate_rightsizing_recommendation(
 def generate_schedule_recommendation(
     db: Session,
     resource_id: str,
+    user_id: int,
     schedule: str = "Shutdown daily 8 PM - 8 AM",
     monthly_savings: float = 50.0
 ) -> Optional[Recommendation]:
@@ -193,7 +203,8 @@ def generate_schedule_recommendation(
     # Check if recommendation already exists
     existing = db.query(Recommendation).filter(
         Recommendation.resource_id == resource_id,
-        Recommendation.recommendation_type == 'schedule'
+        Recommendation.recommendation_type == 'schedule',
+        Recommendation.user_id == user_id
     ).first()
     
     if existing:
@@ -201,7 +212,10 @@ def generate_schedule_recommendation(
         return None
     
     # Get resource
-    resource = db.query(Resource).filter(Resource.id == resource_id).first()
+    resource = db.query(Resource).filter(
+        Resource.id == resource_id,
+        Resource.user_id == user_id
+    ).first()
     
     if not resource:
         return None
@@ -215,7 +229,8 @@ def generate_schedule_recommendation(
             description=f'Non-production resource running 24/7 in {resource.environment} environment.',
             potential_savings=monthly_savings,
             suggested_action=schedule,
-            confidence=0.90
+            confidence=0.90,
+            user_id=user_id
         )
         
         db.add(rec)
@@ -232,14 +247,14 @@ class ResourceAnalysisService:
     """Service for resource efficiency analysis and recommendations."""
     
     @staticmethod
-    def analyze_all_resources(db: Session) -> Dict[str, int]:
+    def analyze_all_resources(db: Session, user_id: int) -> Dict[str, int]:
         """
-        Analyze all resources and generate recommendations.
+        Analyze all resources and generate recommendations for a user.
         
         Returns:
             Dictionary with counts of analyzed resources and generated recommendations
         """
-        resources = db.query(Resource).all()
+        resources = db.query(Resource).filter(Resource.user_id == user_id).all()
         
         analyzed_count = 0
         rightsizing_count = 0
@@ -247,14 +262,14 @@ class ResourceAnalysisService:
         
         for resource in resources:
             # Analyze utilization
-            analyze_resource_utilization(db, resource.id)
+            analyze_resource_utilization(db, resource.id, user_id)
             analyzed_count += 1
             
             # Generate recommendations
-            if generate_rightsizing_recommendation(db, resource.id):
+            if generate_rightsizing_recommendation(db, resource.id, user_id):
                 rightsizing_count += 1
             
-            if generate_schedule_recommendation(db, resource.id):
+            if generate_schedule_recommendation(db, resource.id, user_id):
                 schedule_count += 1
         
         logger.info(f"Analyzed {analyzed_count} resources, generated {rightsizing_count} rightsizing and {schedule_count} schedule recommendations")
